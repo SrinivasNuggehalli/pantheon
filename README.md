@@ -1,167 +1,176 @@
-# Pantheon of Congestion Control
-The Pantheon contains wrappers for many popular practical and research
-congestion control schemes. The Pantheon enables them to run on a common
-interface, and has tools to benchmark and compare their performances.
-Pantheon tests can be run locally over emulated links using
-[mahimahi](http://mahimahi.mit.edu/) or over the Internet to a remote machine.
+# Pantheon Setup & Congestion Control Evaluation
 
-Our website is <https://pantheon.stanford.edu>, where you can find more
-information about Pantheon, including supported schemes, measurement results
-on a global testbed so far, and our paper at [USENIX ATC 2018](https://www.usenix.org/conference/atc18/presentation/yan-francis)
-(**Awarded Best Paper**).
-In case you are interested, the scripts and traces
-(including "calibrated emulators") for running the testbed can be found in
-[observatory](https://github.com/StanfordSNR/observatory).
+This guide documents the installation, setup, and experiment execution process of the [Pantheon](https://github.com/StanfordSNR/pantheon) framework, tested on **Ubuntu 18.04** in a **VirtualBox VM**, with manual resolution of Mahimahi and tunnel service issues.
 
-To discuss and talk about Pantheon-related topics and issues, feel free to
-post in the [Google Group](https://groups.google.com/forum/#!forum/pantheon-stanford)
-or send an email to `pantheon-stanford <at> googlegroups <dot> com`.
+---
 
-## Disclaimer
-This is research software. Our scripts will write to the file system in the
-`pantheon` folder. We never run third party programs as root, but we cannot
-guarantee they will never try to escalate privilege to root.
+## 📦 1. Clone the Repository and Initialize Submodules
 
-You might want to install dependencies and run the setup on your own, because
-our handy scripts will install packages and perform some system-wide settings
-(e.g., enabling IP forwarding, loading kernel modeuls) as root.
-Please run at your own risk.
-
-## Preparation
-To clone this repository, run:
-
-```
+```bash
 git clone https://github.com/StanfordSNR/pantheon.git
+cd pantheon
+git submodule update --init --recursive
 ```
 
-Many of the tools and programs run by the Pantheon are git submodules in the
-`third_party` folder. To add submodules after cloning, run:
+> If you see submodule errors (e.g., `proto-quic` failed), re-run the above command until all are cloned.
 
-```
-git submodule update --init --recursive  # or tools/fetch_submodules.sh
-```
+---
 
-## Dependencies
-We provide a handy script `tools/install_deps.sh` to install globally required
-dependencies; these dependencies are required before testing **any** scheme
-and are different from the flag `--install-deps` below.
-In particular, we created the [Pantheon-tunnel](https://github.com/StanfordSNR/pantheon-tunnel)
-that is required to instrument each scheme.
+## 🐍 2. Install Python 2 and pip
 
-You might want to inspect the contents of
-`install_deps.sh` and install these dependencies by yourself in case you want to
-manage dependencies differently. Please note that Pantheon currently
-**only** supports Python 2.7.
-
-Next, for those dependencies required by each congestion control scheme `<cc>`,
-run `src/wrappers/<cc>.py deps` to print a dependency list. You could install
-them by yourself, or run
-
-```
-src/experiments/setup.py --install-deps (--all | --schemes "<cc1> <cc2> ...")
+```bash
+sudo apt install python2 -y
+curl https://bootstrap.pypa.io/pip/2.7/get-pip.py -o get-pip.py
+sudo python2 get-pip.py
 ```
 
-to install dependencies required by all schemes or a list of schemes separated
-by spaces.
+---
 
-## Setup
-After installing dependencies, run
+## 📚 3. Install Required Dependencies
 
-```
-src/experiments/setup.py [--setup] [--all | --schemes "<cc1> <cc2> ..."]
-```
-
-to set up supported congestion control schemes. `--setup` is required
-to be run only once. In contrast, `src/experiments/setup.py` is
-required to be run on every reboot (without `--setup`).
-
-## Running the Pantheon
-To test schemes in emulated networks locally, run
-
-```
-src/experiments/test.py local (--all | --schemes "<cc1> <cc2> ...")
+```bash
+sudo apt install -y \
+  build-essential cmake python-is-python2 pkg-config \
+  libboost-all-dev libprotobuf-dev protobuf-compiler \
+  libgoogle-glog-dev libgflags-dev libpcap-dev \
+  libssl-dev iproute2 net-tools iperf
 ```
 
-To test schemes over the Internet to remote machine, run
+---
 
-```
-src/experiments/test.py remote (--all | --schemes "<cc1> <cc2> ...") HOST:PANTHEON-DIR
-```
+## 💠 4. Install Mahimahi (PPA Broken in Ubuntu 18/20)
 
-Run `src/experiments/test.py local -h` and `src/experiments/test.py remote -h`
-for detailed usage and additional optional arguments, such as multiple flows,
-running time, arbitrary set of mahimahi shells for emulation tests,
-data sender side for real tests; use `--data-dir DIR` to specify an
-an output directory to save logs.
-
-## Pantheon analysis
-To analyze test results, run
-
-```
-src/analysis/analyze.py --data-dir DIR
+Instead of the broken PPA:
+```bash
+sudo apt install mahimahi
 ```
 
-It will analyze the logs saved by `src/experiments/test.py`, then generate
-performance figures and a full PDF report `pantheon_report.pdf`.
+> ⚠️ The PPA `ppa:keithw/mahimahi` is deprecated; skip it.
 
-## Running a single congestion control scheme
-All the available schemes can be found in `src/config.yml`. To run a single
-congestion control scheme, first follow the **Dependencies** section to install
-the required dependencies.
+---
 
-At the first time of running, run `src/wrappers/<cc>.py setup`
-to perform the persistent setup across reboots, such as compilation,
-generating or downloading files to send, etc. Then run
-`src/wrappers/<cc>.py setup_after_reboot`, which also has to be run on every
-reboot. In fact, `test/setup.py` performs `setup_after_reboot` by
-default, and runs `setup` on schemes when `--setup` is given.
+## 🔧 5. Fix Tunnel Server Build (pantheon-tunnel)
 
-Next, execute the following command to find the running order for a scheme:
-```
-src/wrappers/<cc>.py run_first
+```bash
+cd third_party/pantheon-tunnel
+./autogen.sh
+./configure
+make -j
+sudo make install
 ```
 
-Depending on the output of `run_first`, run
-
-```
-# Receiver first
-src/wrappers/<cc>.py receiver port
-src/wrappers/<cc>.py sender IP port
-```
-
-or
-
-```
-# Sender first
-src/wrappers/<cc>.py sender port
-src/wrappers/<cc>.py receiver IP port
+> If `make` fails due to warnings treated as errors, upgrade your compiler:
+```bash
+sudo add-apt-repository ppa:ubuntu-toolchain-r/test
+sudo apt update
+sudo apt install gcc-11 g++-11
+sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-11 100
+sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-11 100
 ```
 
-Run `src/wrappers/<cc>.py -h` for detailed usage.
+---
 
-## How to add your own congestion control
-Adding your own congestion control to Pantheon is easy! Just follow these
-steps:
+## 🚀 6. Load Kernel Modules and Configure CC Support
 
-1. Fork this repository.
+```bash
+sudo modprobe tcp_bbr
+sudo modprobe tcp_vegas
+sudo sysctl -w net.ipv4.tcp_allowed_congestion_control="reno cubic bbr vegas"
+sudo sysctl -w net.core.default_qdisc=fq
+sudo sysctl -w net.ipv4.ip_forward=1
+```
 
-2. Add your congestion control repository as a submodule to `pantheon`:
+---
 
-   ```
-   git submodule add <your-cc-repo-url> third_party/<your-cc-repo-name>
-   ```
+## 🔀 7. Create Mahimahi Traces
 
-   and add `ignore = dirty` to `.gitmodules` under your submodule.
+```bash
+seq 1 60 | awk '{print 50}' > src/experiments/50mbps.trace
+seq 1 60 | awk '{print 1}' > src/experiments/1mbps.trace
+```
 
-3. In `src/wrappers`, read `example.py` and create your own `<your-cc-name>.py`.
-   Make sure the sender and receiver run longer than 60 seconds; you could also
-   leave them running forever without the need to kill them.
+---
 
-4. Add your scheme to `src/config.yml` along with settings of
-   `name`, `color` and `marker`, so that `src/experiments/test.py` is able to
-   find your scheme and `src/analysis/analyze.py` is able to plot your scheme
-   with the specified settings.
+## 🧪 8. Run Pantheon Experiments
 
-5. Add your scheme to `SCHEMES` in `.travis.yml` for continuous integration testing.
+### A. Low-Latency, High-Bandwidth (50 Mbps, 10ms RTT)
 
-6. Send us a pull request and that's it, you're in the Pantheon!
+```bash
+python2 src/experiments/test.py local \
+  --schemes "vegas cubic bbr" \
+  --run-times 1 \
+  --runtime 60 \
+  --data-dir result/50mbps_10ms \
+  --uplink-trace src/experiments/50mbps.trace \
+  --downlink-trace src/experiments/50mbps.trace \
+  --prepend-mm-cmds "mm-delay 5"
+
+python2 src/analysis/analyze.py --data-dir result/50mbps_10ms
+```
+
+### B. High-Latency, Constrained Bandwidth (1 Mbps, 200ms RTT)
+
+```bash
+python2 src/experiments/test.py local \
+  --schemes "vegas cubic bbr" \
+  --run-times 1 \
+  --runtime 60 \
+  --data-dir result/1mbps_200ms \
+  --uplink-trace src/experiments/1mbps.trace \
+  --downlink-trace src/experiments/1mbps.trace \
+  --prepend-mm-cmds "mm-delay 100"
+
+python2 src/analysis/analyze.py --data-dir result/1mbps_200ms
+```
+
+---
+
+## 🛠 9. Troubleshooting Tips
+
+- **Tunnel Errors / Timeout**:
+  - Ensure `mm-tunnelserver` is installed:
+    ```bash
+    which mm-tunnelserver
+    ```
+    If missing, rebuild and install `pantheon-tunnel`.
+
+- **Tunnel Connection Timeout**:
+  - Check permissions:
+    ```bash
+    ls -l /usr/local/bin/mm-tunnelserver
+    ```
+    Should be `-rwsr-xr-x root root`.
+
+- **If Mahimahi commands fail**:
+  ```bash
+  sudo sysctl -w net.ipv4.ip_forward=1
+  ```
+
+- **Export Mahimahi path if needed**:
+  ```bash
+  export MAHIMAHI_BASE=/usr/bin
+  ```
+
+---
+
+## 📊 10. Results & Outputs
+
+Each experiment logs:
+- `*.log` files in `result/<experiment_name>/`
+- Throughput, RTT, and loss graphs
+- Auto-generated PDF report (optional, if LaTeX is installed)
+
+---
+
+## ✅ Final Notes
+
+- All tests ran successfully with **Cubic**, **BBR**, and **Vegas**.
+- Graphs were generated using Pantheon’s built-in tools.
+- All custom traces are 60s long to simulate 1-minute traffic runs.
+- Logs were saved and can be analyzed or committed to a GitHub repo.
+
+---
+
+⏳ **Last verified:** April 24, 2025
+
+
